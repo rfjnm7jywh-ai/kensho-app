@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>懸賞管理</title>
+
+<style>
+body{
+font-family:sans-serif;
+background:#f4f4f4;
+padding:12px;
+}
+
+.card{
+background:white;
+padding:10px;
+margin-top:10px;
+border-radius:8px;
+}
+
+.done{
+opacity:0.5;
+text-decoration:line-through;
+}
+
+button{
+padding:8px 14px;
+font-size:1em;
+margin:4px 4px 0 0;
+}
+
+.tags{
+margin:6px 0;
+}
+
+.tag{
+display:inline-block;
+padding:2px 8px;
+border-radius:12px;
+font-size:0.8em;
+margin:2px;
+}
+
+.tag-web{ background:#4CAF50; color:white; }
+.tag-hagaki{ background:#2196F3; color:white; }
+.tag-barcode{ background:#FF9800; color:white; }
+.tag-receipt{ background:#9C27B0; color:white; }
+.tag-seal{ background:#F44336; color:white; }
+.tag-other{ background:#607D8B; color:white; }
+
+.detail-box{
+background:#f9f9f9;
+border-left:3px solid #ddd;
+padding:6px 10px;
+margin:6px 0;
+font-size:0.9em;
+border-radius:4px;
+}
+
+.prize{
+color:#e65100;
+font-weight:bold;
+}
+</style>
+
+</head>
+
+<body>
+
+<h1 id="title">懸賞管理</h1>
+
+<input id="url" placeholder="キャンペーンURL">
+<input id="name" placeholder="キャンペーン名">
+<input id="deadline" type="date">
+<button onclick="add()">追加</button>
+
+<div id="list"></div>
+
+<h2>とらたぬ一括取り込み</h2>
+<p style="font-size:0.9em;color:#666">とらたぬのタグ別ページのURLを貼り付けてください。</p>
+<input id="toratanu-url" placeholder="https://www.mechatoku.com/ckensho/tag_detail/tid/..." style="width:60%">
+<button onclick="importToratanu()">取り込む</button>
+<span id="import-status" style="font-size:0.9em;color:#666;margin-left:8px"></span>
+
+<br><br>
+<button onclick="fetchAllDetails()" style="background:#1976D2;color:white">📋 未取得の詳細を一括取得</button>
+<span id="detail-status" style="font-size:0.9em;color:#666;margin-left:8px"></span>
+
+<h2>バックアップ</h2>
+<button onclick="exportData()">バックアップ保存</button>
+<input type="file" onchange="importData(event)">
+
+<script>
+
+let data = JSON.parse(localStorage.getItem("kensho")) || [];
+
+function save(){
+  localStorage.setItem("kensho", JSON.stringify(data));
+}
+
+function add(){
+  const url = document.getElementById("url").value.trim();
+  let name = document.getElementById("name").value.trim();
+  const deadline = document.getElementById("deadline").value;
+
+  if(!name && url){
+    try { name = new URL(url).hostname; } catch(e) {}
+  }
+
+  if(!name) return;
+
+  data.push({ name, deadline, url, done:false });
+  save();
+  render();
+
+  document.getElementById("url").value = "";
+  document.getElementById("name").value = "";
+  document.getElementById("deadline").value = "";
+}
+
+function toggle(i){
+  data[i].done = !data[i].done;
+  save();
+  render();
+}
+
+function del(i){
+  data.splice(i, 1);
+  save();
+  render();
+}
+
+function parseConditions(text){
+  if(!text) return [];
+  const tags = [];
+  if(/WEB|ウェブ|web|オンライン|インターネット/i.test(text)) tags.push({label:'WEB', cls:'tag-web'});
+  if(/はがき|ハガキ|葉書/i.test(text)) tags.push({label:'ハガキ', cls:'tag-hagaki'});
+  if(/バーコード|barcode/i.test(text)) tags.push({label:'バーコード', cls:'tag-barcode'});
+  if(/レシート/i.test(text)) tags.push({label:'レシート', cls:'tag-receipt'});
+  if(/シール/i.test(text)) tags.push({label:'シール', cls:'tag-seal'});
+  return tags;
+}
+
+function render(){
+  document.getElementById("title").innerText =
+    "懸賞管理 (" + data.length + ")";
+
+  data.sort((a,b)=>{
+    if(!a.deadline) return 1;
+    if(!b.deadline) return -1;
+    return new Date(a.deadline) - new Date(b.deadline);
+  });
+
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+
+  data.forEach((item, i)=>{
+    const div = document.createElement("div");
+
+    const today = new Date();
+    const deadline = new Date(item.deadline);
+    const diff = Math.ceil((deadline - today) / (1000*60*60*24));
+
+    if(item.deadline && diff <= 3){
+      div.style.border = "2px solid red";
+    }
+
+    div.className = "card " + (item.done ? "done" : "");
+
+    let remain = "";
+    if(item.deadline){
+      remain = diff >= 0 ? "（残り " + diff + "日）" : "（期限切れ）";
+    }
+
+    const safeName = item.name.replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    const safeDeadline = (item.deadline || "").replace(/[^0-9\-]/g, "");
+
+    // 応募条件タグ
+    const conditions = parseConditions(item.conditions);
+    const applyMethod = parseConditions(item.applyMethod);
+    const allTags = [...new Map([...conditions, ...applyMethod].map(t=>[t.label,t])).values()];
+    const tagsHtml = allTags.length
+      ? '<div class="tags">' + allTags.map(t=>`<span class="tag ${t.cls}">${t.label}</span>`).join('') + '</div>'
+      : '';
+
+    // 詳細情報
+    let detailHtml = '';
+    if(item.prize){
+      detailHtml += `<div class="detail-box"><span class="prize">🎁 ${item.prize.substring(0,80)}${item.prize.length>80?'…':''}</span></div>`;
+    }
+    if(item.conditions){
+      detailHtml += `<div class="detail-box">📋 ${item.conditions.substring(0,120)}${item.conditions.length>120?'…':''}</div>`;
+    }
+
+    const hasDetails = item.prize || item.conditions || item.applyMethod;
+    const detailBtnLabel = hasDetails ? '詳細更新' : '詳細取得';
+
+    div.innerHTML = `
+<b>${safeName}</b><br>
+締切: ${safeDeadline || "なし"} ${remain}<br>
+${tagsHtml}
+${detailHtml}
+<button id="open-btn-${i}" onclick="openCampaign(${i})">応募する</button>
+<button onclick="fetchDetail(${i})" id="detail-btn-${i}">${detailBtnLabel}</button>
+<button onclick="toggle(${i})">${item.done ? "取り消し" : "応募済"}</button>
+<button onclick="del(${i})">削除</button>
+`;
+    list.appendChild(div);
+  });
+}
+
+async function fetchViaProxy(url){
+  const proxies = [
+    async (u) => {
+      const res = await fetch("https://corsproxy.io/?" + encodeURIComponent(u));
+      if(!res.ok) throw new Error();
+      return res.text();
+    },
+    async (u) => {
+      const res = await fetch("https://api.allorigins.win/get?url=" + encodeURIComponent(u));
+      if(!res.ok) throw new Error();
+      const json = await res.json();
+      return json.contents;
+    },
+    async (u) => {
+      const res = await fetch("https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u));
+      if(!res.ok) throw new Error();
+      return res.text();
+    },
+  ];
+  for(const proxy of proxies){
+    try { const html = await proxy(url); if(html) return html; } catch(e) {}
+  }
+  return null;
+}
+
+function parseDetailPage(html){
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+  const result = {};
+
+  // border-bottomを含むdivを全て探す
+  const borderDivs = doc.querySelectorAll('div[class*="border-bottom"]');
+
+  borderDivs.forEach(div => {
+    const prev = div.previousElementSibling;
+    if(!prev) return;
+    const label = prev.textContent.trim();
+    const value = div.textContent.trim();
+    if(label.includes('限定事項') || label.includes('応募条件')) result.conditions = value;
+    else if(label.includes('賞') && label.includes('品') && !label.includes('タグ')) result.prize = value;
+    else if(label.includes('応募方法') || label.includes('応募メディア')) result.applyMethod = value;
+    else if(label.includes('メーカーサイト') || (label.includes('キャンペーン') && label.includes('URL'))){
+      const link = div.querySelector('a[href]');
+      if(link) result.campaignUrl = link.href;
+    }
+  });
+
+  // キャンペーン実際のURLを取得
+  if(!result.campaignUrl){
+    for(const a of doc.querySelectorAll('a[href]')){
+      const href = a.getAttribute('href');
+      if(href && href.startsWith('http') && !href.includes('mechatoku.com')){
+        result.campaignUrl = href;
+        break;
+      }
+    }
+  }
+
+  return result;
+}
+
+async function fetchDetail(i){
+  const item = data[i];
+  if(!item.url || !item.url.includes('mechatoku.com')){
+    alert('URLがmechatoku.comではありません: ' + item.url);
+    return;
+  }
+
+  const btn = document.getElementById('detail-btn-' + i);
+  if(btn) btn.textContent = '取得中...';
+
+  const html = await fetchViaProxy(item.url);
+
+  if(html){
+    const detail = parseDetailPage(html);
+    if(detail.conditions) data[i].conditions = detail.conditions;
+    if(detail.prize) data[i].prize = detail.prize;
+    if(detail.applyMethod) data[i].applyMethod = detail.applyMethod;
+    if(detail.campaignUrl) data[i].campaignUrl = detail.campaignUrl;
+    save();
+    render();
+  } else {
+    if(btn) btn.textContent = '詳細取得';
+  }
+}
+
+async function fetchAllDetails(){
+  // prizeが#タグのもの、またはapplyMethodがないものも対象に含める
+  const targets = data.filter((item, i) =>
+    item.url && item.url.includes('mechatoku.com') &&
+    (!item.conditions || !item.applyMethod || (item.prize && item.prize.startsWith('#')))
+  );
+  const status = document.getElementById('detail-status');
+  if(targets.length === 0){
+    status.textContent = `対象なし（全${data.length}件中mechatoku URLなし）`;
+    return;
+  }
+  status.textContent = `0/${targets.length}件取得中...`;
+
+  let done = 0;
+  for(const item of targets){
+    const i = data.indexOf(item);
+    const html = await fetchViaProxy(item.url);
+    if(html){
+      const detail = parseDetailPage(html);
+      if(detail.conditions) data[i].conditions = detail.conditions;
+      if(detail.prize) data[i].prize = detail.prize;
+      if(detail.applyMethod) data[i].applyMethod = detail.applyMethod;
+      if(detail.campaignUrl) data[i].campaignUrl = detail.campaignUrl;
+    }
+    done++;
+    status.textContent = `${done}/${targets.length}件取得中...`;
+    await new Promise(r => setTimeout(r, 500)); // 過負荷防止
+  }
+  save();
+  render();
+  status.textContent = `完了（${done}件）`;
+}
+
+async function openCampaign(i){
+  const item = data[i];
+  if(!item.url) return;
+
+  if(item.campaignUrl){
+    window.open(item.campaignUrl, "_blank");
+    return;
+  }
+
+  if(!item.url.includes("mechatoku.com")){
+    window.open(item.url, "_blank");
+    return;
+  }
+
+  const btn = document.getElementById("open-btn-" + i);
+  if(btn) btn.textContent = "取得中...";
+
+  const html = await fetchViaProxy(item.url);
+
+  if(html){
+    const detail = parseDetailPage(html);
+    if(detail.campaignUrl){
+      data[i].campaignUrl = detail.campaignUrl;
+      if(detail.conditions) data[i].conditions = detail.conditions;
+      if(detail.prize) data[i].prize = detail.prize;
+      save();
+      window.open(detail.campaignUrl, "_blank");
+      if(btn) btn.textContent = "応募する";
+      render();
+      return;
+    }
+  }
+
+  window.open(item.url, "_blank");
+  if(btn) btn.textContent = "応募する";
+}
+
+function parseJapaneseDate(text){
+  const m = text.match(/(\d+)年(\d+)月(\d+)日/);
+  if(!m) return "";
+  const year = parseInt(m[1]) < 100 ? parseInt(m[1]) + 2000 : parseInt(m[1]);
+  const month = String(parseInt(m[2])).padStart(2, "0");
+  const day = String(parseInt(m[3])).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+async function importToratanu(){
+  const inputUrl = document.getElementById("toratanu-url").value.trim();
+  if(!inputUrl) return;
+
+  const status = document.getElementById("import-status");
+  status.textContent = "取得中...";
+
+  let html;
+  const proxies = [
+    async (url) => {
+      const res = await fetch("https://corsproxy.io/?" + encodeURIComponent(url));
+      if(!res.ok) throw new Error();
+      return res.text();
+    },
+    async (url) => {
+      const res = await fetch("https://api.allorigins.win/get?url=" + encodeURIComponent(url));
+      if(!res.ok) throw new Error();
+      const json = await res.json();
+      return json.contents;
+    },
+  ];
+
+  for(const proxy of proxies){
+    try {
+      html = await proxy(inputUrl);
+      if(html) break;
+    } catch(e) {}
+  }
+
+  if(!html){
+    status.textContent = "取得失敗";
+    alert("ページの取得に失敗しました。URLを確認するか、時間をおいて試してください。");
+    return;
+  }
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+
+  let added = 0;
+
+  doc.querySelectorAll("tr").forEach(row=>{
+    const cells = row.querySelectorAll("td");
+    if(cells.length < 2) return;
+
+    const deadline = parseJapaneseDate(cells[0].textContent);
+
+    const link = cells[0].querySelector("a[href*='/ckensho/shousai/cid/']");
+    if(!link) return;
+    const sponsor = link.textContent.trim();
+    const href = link.getAttribute("href") || "";
+    const url = href.startsWith("/")
+      ? "https://www.mechatoku.com" + href
+      : href;
+
+    let description = "";
+    const br = cells[1] ? cells[1].querySelector("br") : null;
+    if(br) {
+      let node = br.nextSibling;
+      while(node) {
+        if(node.nodeType === 3) description += node.textContent;
+        node = node.nextSibling;
+      }
+    }
+    description = description.trim().replace(/\s+/g, " ").substring(0, 60);
+    const name = sponsor + (description ? "：" + description : "");
+
+    if(!url || data.find(d => d.url === url)) return;
+
+    data.push({ name, url, deadline, done:false });
+    added++;
+  });
+
+  if(added > 0){
+    save();
+    render();
+    document.getElementById("toratanu-url").value = "";
+    status.textContent = added + "件追加しました";
+  } else {
+    status.textContent = "";
+    alert("取り込めるキャンペーンが見つかりませんでした");
+  }
+}
+
+function exportData(){
+  const blob = new Blob(
+    [JSON.stringify(data, null, 2)],
+    {type:"application/json"}
+  );
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "kensho-backup.json";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+function importData(event){
+  const file = event.target.files[0];
+  const reader = new FileReader();
+  reader.onload = function(e){
+    data = JSON.parse(e.target.result);
+    save();
+    render();
+  };
+  reader.readAsText(file);
+}
+
+render();
+</script>
+
+</body>
+</html>
