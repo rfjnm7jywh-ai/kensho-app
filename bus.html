@@ -30,6 +30,7 @@
   .bus-time.soon { color: #d93025; }
   .bus-time.coming { color: #e37400; }
   .bus-wait { font-size: 13px; color: #888; margin-left: 8px; }
+  .bus-arrival { font-size: 11px; color: #aaa; margin-left: 8px; }
   .bus-wait span { color: #1a73e8; font-weight: 600; }
   .no-bus { color: #888; font-size: 14px; padding: 4px 0; }
   .timetable-toggle { padding: 8px 16px 12px; }
@@ -176,7 +177,7 @@ function getNextBuses(timetable, n=3) {
   return all.filter(t => t > nowMins).slice(0, n);
 }
 
-function renderNextBuses(elId, key) {
+function renderNextBuses(elId, key, arrival) {
   const timetable = getTimetable(key);
   const now = new Date();
   const nowMins = now.getHours() * 60 + now.getMinutes();
@@ -193,7 +194,13 @@ function renderNextBuses(elId, key) {
     const diff = t - nowMins;
     const cls = diff <= 5 ? 'soon' : diff <= 15 ? 'coming' : '';
     const wait = diff < 1 ? 'まもなく' : `あと<span>${diff}分</span>`;
-    html += `<div class="bus-row"><div class="bus-time ${cls}">${h}:${String(m).padStart(2,'0')}</div><div class="bus-wait">${wait}</div></div>`;
+    let arrHtml = '';
+    if (arrival) {
+      const at = t + arrival.offset;
+      const ah = Math.floor(at / 60) % 24, am = at % 60;
+      arrHtml = `<div class="bus-arrival">${arrival.label} 着 ${ah}:${String(am).padStart(2,'0')}</div>`;
+    }
+    html += `<div class="bus-row"><div class="bus-time ${cls}">${h}:${String(m).padStart(2,'0')}</div><div class="bus-wait">${wait}</div>${arrHtml}</div>`;
   });
   el.innerHTML = html;
 }
@@ -218,6 +225,10 @@ const keyMap = {
   'jr-kaeri-minami6':'jr_kaeri_minami6','jr-kaeri-minami8':'jr_kaeri_minami8',
   'jotetsu-iki-minami34':'jotetsu_iki_minami34',
   'jotetsu-kaeri-kawazoe':'jotetsu_kaeri_kawazoe',
+};
+const arrivalMap = {
+  'jotetsu-iki': { offset: 20, label: '藻岩高校前' },
+  'jotetsu-iki-kawazoe': { offset: 23, label: '川沿1-1' },
 };
 
 function toggleTable(key) {
@@ -246,7 +257,7 @@ function update() {
     const key = el.id.replace('table-', '');
     renderFullTable(el.id, keyMap[key]);
   });
-  Object.keys(keyMap).forEach(k => renderNextBuses('next-' + k, keyMap[k]));
+  Object.keys(keyMap).forEach(k => renderNextBuses('next-' + k, keyMap[k], arrivalMap[k]));
 }
 
 function switchTab(tab) {
