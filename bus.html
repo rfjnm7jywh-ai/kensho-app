@@ -38,6 +38,14 @@
   .toggle-btn { font-size: 13px; color: #1a73e8; background: none; border: none; cursor: pointer; padding: 0; }
   .buskita-link { padding: 4px 16px 12px; }
   .buskita-link a { font-size: 13px; color: #1a73e8; text-decoration: none; }
+  .reverse-search { background: white; border-radius: 12px; margin-bottom: 12px; padding: 12px 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+  .reverse-label { font-size: 13px; color: #555; margin-bottom: 8px; }
+  .reverse-input-row { display: flex; align-items: center; gap: 8px; }
+  .reverse-input-row input { font-size: 22px; border: 1px solid #ccc; border-radius: 8px; padding: 4px 8px; }
+  .reverse-input-row button { font-size: 13px; color: #888; background: none; border: 1px solid #ccc; border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+  .reverse-result { font-size: 13px; margin-top: 10px; color: #333; }
+  .reverse-result-label { font-weight: 700; color: #1a73e8; }
+  .reverse-bus { margin-top: 4px; }
   .full-timetable { padding: 0 16px 12px; display: none; }
   .full-timetable.open { display: block; }
   .hour-row { display: flex; margin-bottom: 4px; font-size: 14px; }
@@ -64,6 +72,14 @@
   <a href="https://jhb.buskita.com/" target="_blank" style="font-size:13px; color:#1a73e8; text-decoration:none;">🚌 JR現在地→</a>
 </div>
 <div id="tab-iki" class="content active">
+  <div class="reverse-search">
+    <div class="reverse-label">何時までに着きたい？</div>
+    <div class="reverse-input-row">
+      <input type="time" id="arrival-input" oninput="reverseSearch()">
+      <button onclick="clearReverseSearch()">クリア</button>
+    </div>
+    <div id="reverse-results"></div>
+  </div>
   <div class="route-card">
     <div class="route-header">
       <div class="route-title">じょうてつバス</div>
@@ -293,6 +309,44 @@ function update() {
     renderFullTable(el.id, keyMap[key], arrivalMap[key]);
   });
   Object.keys(keyMap).forEach(k => renderNextBuses('next-' + k, keyMap[k], arrivalMap[k]));
+}
+
+function reverseSearch() {
+  const val = document.getElementById('arrival-input').value;
+  const el = document.getElementById('reverse-results');
+  if (!val) { el.innerHTML = ''; return; }
+  const [ah, am] = val.split(':').map(Number);
+  const wantMins = ah * 60 + am;
+  const routes = [
+    { dataKey: 'jotetsu_iki', label: '藻岩高校前', offset: 20 },
+    { dataKey: 'jotetsu_iki_kawazoe', label: '川沿1-1', offset: 23 },
+  ];
+  let html = '';
+  for (const r of routes) {
+    const timetable = getTimetable(r.dataKey);
+    const all = [];
+    for (const [h, mins] of Object.entries(timetable))
+      for (const m of mins) all.push(parseInt(h) * 60 + m);
+    all.sort((a,b) => a-b);
+    const ok = all.filter(t => t + r.offset <= wantMins).slice(-3);
+    html += `<div class="reverse-result"><span class="reverse-result-label">${r.label}</span>`;
+    if (ok.length === 0) {
+      html += `<div class="reverse-bus">該当なし</div>`;
+    } else {
+      ok.forEach(t => {
+        const dh = Math.floor(t/60), dm = t%60;
+        const at = t + r.offset, ath = Math.floor(at/60)%24, atm = at%60;
+        html += `<div class="reverse-bus">${dh}:${String(dm).padStart(2,'0')}発 → ${ath}:${String(atm).padStart(2,'0')}着</div>`;
+      });
+    }
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+function clearReverseSearch() {
+  document.getElementById('arrival-input').value = '';
+  document.getElementById('reverse-results').innerHTML = '';
 }
 
 function switchTab(tab) {
