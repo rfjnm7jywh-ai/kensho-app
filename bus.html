@@ -215,7 +215,9 @@ function renderNextBuses(elId, key, arrival) {
     const wait = diff < 1 ? 'まもなく' : `あと<span>${diff}分</span>`;
     let arrHtml = '';
     if (arrival) {
-      const at = t + arrival.offset;
+      const nq = getNonQuickSet(key);
+      const offset = (arrival.offsetSlow && nq.has(t)) ? arrival.offsetSlow : arrival.offset;
+      const at = t + offset;
       const ah = Math.floor(at / 60) % 24, am = at % 60;
       arrHtml = `<div class="bus-arrival">${arrival.label} 着 ${ah}:${String(am).padStart(2,'0')}</div>`;
     }
@@ -242,7 +244,9 @@ function renderFullTable(elId, key, arrival) {
     html += `<div class="hour-row"><div class="hour-label">${h}時</div><div class="hour-mins">${minsHtml}</div></div>`;
     if (arrival) {
       const arrStrs = mins.map(m => {
-        const at = h * 60 + m + arrival.offset;
+        const t = h * 60 + m;
+        const offset = (arrival.offsetSlow && nonQuick.has(t)) ? arrival.offsetSlow : arrival.offset;
+        const at = t + offset;
         const ah = Math.floor(at / 60) % 24, am = at % 60;
         return `${ah}:${String(am).padStart(2,'0')}`;
       });
@@ -278,7 +282,7 @@ function getNonQuickSet(dataKey) {
 }
 
 const arrivalMap = {
-  'jotetsu-iki': { offset: 20, label: '藻岩高校前' },
+  'jotetsu-iki': { offset: 20, offsetSlow: 25, label: '藻岩高校前' },
   'jotetsu-iki-kawazoe': { offset: 23, label: '川沿1-1' },
 };
 
@@ -318,24 +322,29 @@ function reverseSearch() {
   const [ah, am] = val.split(':').map(Number);
   const wantMins = ah * 60 + am;
   const routes = [
-    { dataKey: 'jotetsu_iki', label: '藻岩高校前', offset: 20 },
+    { dataKey: 'jotetsu_iki', label: '藻岩高校前', offset: 20, offsetSlow: 25 },
     { dataKey: 'jotetsu_iki_kawazoe', label: '川沿1-1', offset: 23 },
   ];
   let html = '';
   for (const r of routes) {
     const timetable = getTimetable(r.dataKey);
+    const nq = getNonQuickSet(r.dataKey);
     const all = [];
     for (const [h, mins] of Object.entries(timetable))
       for (const m of mins) all.push(parseInt(h) * 60 + m);
     all.sort((a,b) => a-b);
-    const ok = all.filter(t => t + r.offset <= wantMins).slice(-3);
+    const ok = all.filter(t => {
+      const offset = (r.offsetSlow && nq.has(t)) ? r.offsetSlow : r.offset;
+      return t + offset <= wantMins;
+    }).slice(-3);
     html += `<div class="reverse-result"><span class="reverse-result-label">${r.label}</span>`;
     if (ok.length === 0) {
       html += `<div class="reverse-bus">該当なし</div>`;
     } else {
       ok.forEach(t => {
         const dh = Math.floor(t/60), dm = t%60;
-        const at = t + r.offset, ath = Math.floor(at/60)%24, atm = at%60;
+        const offset = (r.offsetSlow && nq.has(t)) ? r.offsetSlow : r.offset;
+        const at = t + offset, ath = Math.floor(at/60)%24, atm = at%60;
         html += `<div class="reverse-bus">${dh}:${String(dm).padStart(2,'0')}発 → ${ath}:${String(atm).padStart(2,'0')}着</div>`;
       });
     }
