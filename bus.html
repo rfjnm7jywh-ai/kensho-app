@@ -205,16 +205,24 @@ function renderNextBuses(elId, key, arrival) {
   el.innerHTML = html;
 }
 
-function renderFullTable(elId, key) {
+function renderFullTable(elId, key, arrival) {
   const timetable = getTimetable(key);
   const el = document.getElementById(elId);
   if (!el) return;
   const hours = Object.keys(timetable).map(Number).sort((a,b)=>a-b);
-  let html = '';
+  let html = arrival ? `<div class="hour-row"><div class="hour-label"></div><div class="hour-mins" style="font-size:11px;color:#aaa;">着：${arrival.label}</div></div>` : '';
   for (const h of hours) {
     const mins = timetable[h];
     if (!mins || mins.length === 0) continue;
     html += `<div class="hour-row"><div class="hour-label">${h}時</div><div class="hour-mins">${mins.map(m=>String(m).padStart(2,'0')).join(' ')}</div></div>`;
+    if (arrival) {
+      const arrStrs = mins.map(m => {
+        const at = h * 60 + m + arrival.offset;
+        const ah = Math.floor(at / 60) % 24, am = at % 60;
+        return `${ah}:${String(am).padStart(2,'0')}`;
+      });
+      html += `<div class="hour-row"><div class="hour-label" style="font-size:10px;color:#aaa;">着</div><div class="hour-mins" style="font-size:11px;color:#aaa;">${arrStrs.join(' ')}</div></div>`;
+    }
   }
   el.innerHTML = html || '<div class="no-bus">データなし</div>';
 }
@@ -237,7 +245,7 @@ function toggleTable(key) {
   if (el.classList.contains('open')) {
     el.classList.remove('open'); btn.textContent = '時刻表全表示 ▼';
   } else {
-    renderFullTable('table-' + key, keyMap[key]);
+    renderFullTable('table-' + key, keyMap[key], arrivalMap[key]);
     el.classList.add('open'); btn.textContent = '時刻表を閉じる ▲';
   }
 }
@@ -255,7 +263,7 @@ function update() {
   // 開いているテーブルを再描画
   document.querySelectorAll('.full-timetable.open').forEach(el => {
     const key = el.id.replace('table-', '');
-    renderFullTable(el.id, keyMap[key]);
+    renderFullTable(el.id, keyMap[key], arrivalMap[key]);
   });
   Object.keys(keyMap).forEach(k => renderNextBuses('next-' + k, keyMap[k], arrivalMap[k]));
 }
